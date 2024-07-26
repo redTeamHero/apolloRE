@@ -1,6 +1,4 @@
-Sure! Here’s a detailed explanation of the cleaned-up script, tailored for GitHub documentation:
 
----
 
 ## Domain Reconnaissance Script
 
