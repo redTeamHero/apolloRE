@@ -54,6 +54,15 @@ Ensure the following tools and commands are installed:
 - `perl`
 - `python3`
 
+Make it executable:
+
+chmod +x install_tools.sh
+
+
+Run it:
+
+./install_tools.sh
+
 ### Functions
 
 - **`log_with_timestamp`**: Adds timestamps and color-coded levels (INFO, ERROR, WARNING) to log messages.
