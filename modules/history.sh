@@ -10,9 +10,7 @@ run_history() {
     printf '%s\n' "$ROOT_DOMAIN" | waybackurls 2>/dev/null >> "$raw" || true
   fi
   [[ -s "$raw" ]] || { log_warn "No gau/waybackurls output; skipping historical URL enrichment"; rm -f "$raw"; return 0; }
-  awk -v root="$ROOT_DOMAIN" '
-    {u=$0; h=u; sub(/^https?:\/\//,"",h); sub(/\/.*/,"",h); sub(/:.*/,"",h); if (h==root || h ~ ("\\." root "$")) print u}
-  ' "$raw" | sort -u > "$out"
+  filter_scope_urls "$raw" "$out"
   rm -f "$raw"
   log_info "Historical scoped URLs: $(wc -l < "$out")"
 }
