@@ -1,0 +1,5 @@
+# Allowed scope examples
+example.com
+*.example.com
+api.partner.example
+*.partner.example
