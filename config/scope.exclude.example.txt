@@ -1,3 +1,5 @@
 # Explicit exclusions are applied after the allow-list.
 dev.example.com
 *.internal.example.com
+203.0.113.12
+198.51.100.8/30
