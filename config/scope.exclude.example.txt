@@ -1,0 +1,3 @@
+# Explicit exclusions are applied after the allow-list.
+dev.example.com
+*.internal.example.com
