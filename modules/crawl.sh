@@ -5,8 +5,7 @@ run_crawl() {
   require_cmd katana || return 0
   [[ -s "$alive" ]] || { log_warn "No live URLs for crawler"; return 0; }
   katana -list "$alive" -silent -jc -d 2 -rl "$RATE_LIMIT" -o "$raw" || { log_warn "katana failed"; return 0; }
-  awk -v root="$ROOT_DOMAIN" '
-    {u=$0; h=u; sub(/^https?:\/\//,"",h); sub(/\/.*/,"",h); sub(/:.*/,"",h); if (h==root || h ~ ("\\." root "$")) print u}
-  ' "$raw" | sort -u > "$out"
+  filter_scope_urls "$raw" "$out"
   rm -f "$raw"
+  log_info "Scoped crawled URLs: $(wc -l < "$out")"
 }
