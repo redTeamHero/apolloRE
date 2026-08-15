@@ -4,5 +4,8 @@ run_nuclei() {
   stage_done "$out" && { log_info "Resume: nuclei findings already present"; return; }
   require_cmd nuclei || return 0
   [[ -s "$alive" ]] || { log_warn "No live URLs for nuclei"; return 0; }
-  nuclei -l "$alive" -rl "$RATE_LIMIT" -severity low,medium,high,critical -jsonl -o "$out" || log_warn "nuclei completed with errors"
+
+  local args=(-l "$alive" -rl "$RATE_LIMIT" -severity "$NUCLEI_SEVERITIES" -jsonl -o "$out")
+  [[ -n "${APOLLO_USER_AGENT:-}" ]] && args+=(-H "User-Agent: $APOLLO_USER_AGENT")
+  nuclei "${args[@]}" || log_warn "nuclei completed with errors"
 }
