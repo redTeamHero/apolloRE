@@ -16,6 +16,8 @@ RESUME=false
 VERBOSE=false
 CVE_ID=""
 CVE_PROFILE="safe"
+SCOPE_FILE_INPUT=""
+EXCLUDE_FILE_INPUT=""
 CONFIG_FILE="${APOLLO_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/apollore/config.env}"
 
 for ((i=0; i<${#ORIGINAL_ARGS[@]}; i++)); do
@@ -41,7 +43,9 @@ Usage:
   ./apolloRE.sh -d example.com [options]
 
 Options:
-  -d, --domain DOMAIN       Root domain in authorized scope (required)
+  -d, --domain DOMAIN       Root domain used as the recon seed (required)
+      --scope-file FILE     Allow-list of exact hosts/domains and *.wildcards
+      --exclude-file FILE   Optional deny-list applied after the allow-list
   -m, --mode MODE           passive | web | full (default: full)
       --modules LIST        Comma-separated modules
       --cve CVE-ID          Correlate/check one CVE (example: CVE-2024-12345)
@@ -53,10 +57,17 @@ Options:
   -v, --verbose             Verbose logging
   -h, --help                Show help
 
-CVE profiles:
-  safe      Signed CVE templates, HTTP/DNS/SSL/TCP only, excludes fuzz/DoS.
-  expanded  Signed CVE templates with broader protocol coverage while still
-            excluding fuzz/DoS and not enabling arbitrary code or unsigned templates.
+Scope file format:
+  example.com
+  *.example.com
+  api.partner.example
+
+Exclude file format:
+  dev.example.com
+  *.internal.example.com
+
+When --scope-file is omitted, ApolloRE defaults to the root domain plus all of
+its subdomains. Scope/exclude files support DNS hostnames and wildcard DNS names.
 
 Only scan systems you own or have explicit authorization to test.
 EOF
@@ -66,6 +77,8 @@ set -- "${ORIGINAL_ARGS[@]}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -d|--domain) ROOT_DOMAIN="${2:-}"; shift 2 ;;
+    --scope-file) SCOPE_FILE_INPUT="${2:-}"; shift 2 ;;
+    --exclude-file) EXCLUDE_FILE_INPUT="${2:-}"; shift 2 ;;
     -m|--mode) MODE="${2:-}"; shift 2 ;;
     --modules) MODULES="${2:-}"; shift 2 ;;
     --cve) CVE_ID="${2:-}"; shift 2 ;;
@@ -88,7 +101,7 @@ validate_domain "$ROOT_DOMAIN" || die "Invalid domain: $ROOT_DOMAIN"
 case "$CVE_PROFILE" in safe|expanded) ;; *) die "Invalid CVE profile: $CVE_PROFILE" ;; esac
 case "$MODE" in passive|web|full) ;; *) die "Invalid mode: $MODE" ;; esac
 
-export ROOT_DOMAIN MODE RESUME VERBOSE RATE_LIMIT CONFIG_FILE CVE_ID CVE_PROFILE
+export ROOT_DOMAIN MODE RESUME VERBOSE RATE_LIMIT CONFIG_FILE CVE_ID CVE_PROFILE SCOPE_FILE_INPUT EXCLUDE_FILE_INPUT
 export RUN_DIR="$OUTPUT_BASE/$ROOT_DOMAIN"
 export ASSETS_DIR="$RUN_DIR/assets"
 export WEB_DIR="$RUN_DIR/web"
@@ -99,9 +112,11 @@ export LOG_DIR="$RUN_DIR/logs"
 mkdir -p "$ASSETS_DIR" "$WEB_DIR" "$NETWORK_DIR" "$FINDINGS_DIR" "$SCREENSHOTS_DIR" "$LOG_DIR"
 exec > >(tee -a "$LOG_DIR/apollore.log") 2>&1
 
-write_scope_file
+prepare_scope
 log_info "ApolloRE v2 starting for $ROOT_DOMAIN"
 log_info "Mode=$MODE rate_limit=$RATE_LIMIT resume=$RESUME output=$RUN_DIR"
+log_info "Resolved scope entries: $(wc -l < "$RUN_DIR/scope.txt")"
+[[ -s "$RUN_DIR/scope.exclude.txt" ]] && log_info "Resolved exclusions: $(wc -l < "$RUN_DIR/scope.exclude.txt")"
 log_info "CVE profile=$CVE_PROFILE"
 [[ -n "$CVE_ID" ]] && log_info "Targeted CVE mode: $CVE_ID"
 [[ -n "${SHODAN_API_KEY:-}" ]] && log_info "Shodan API key available via environment/config"
