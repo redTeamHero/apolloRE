@@ -18,7 +18,6 @@ RESUME=false
 VERBOSE=false
 CONFIG_FILE="${APOLLO_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/apollore/config.env}"
 
-# Discover --config before loading defaults.
 for ((i=0; i<${#ORIGINAL_ARGS[@]}; i++)); do
   if [[ "${ORIGINAL_ARGS[$i]}" == "--config" ]]; then
     CONFIG_FILE="${ORIGINAL_ARGS[$((i+1))]:-}"
@@ -53,13 +52,13 @@ Options:
 
 Modules:
   subdomains,dns,http,shodan,ports,crawl,history,javascript,cloud,takeover,
-  nuclei,screenshots,prioritize,report
+  nuclei,screenshots,prioritize,normalize,diff,report
 
 Examples:
   ./apolloRE.sh -d example.com --mode passive
   ./apolloRE.sh -d example.com --mode web --rate-limit 25
   ./apolloRE.sh -d example.com --config ~/.config/apollore/config.env --resume
-  ./apolloRE.sh -d example.com --modules subdomains,http,history,prioritize,report
+  ./apolloRE.sh -d example.com --modules subdomains,http,history,normalize,diff,report
 
 Only scan systems you own or have explicit authorization to test.
 EOF
@@ -109,9 +108,9 @@ if [[ -n "$MODULES" ]]; then
   IFS=',' read -r -a pipeline <<< "$MODULES"
 else
   case "$MODE" in
-    passive) pipeline=(subdomains dns http shodan history cloud takeover prioritize report) ;;
-    web) pipeline=(subdomains http crawl history javascript cloud screenshots prioritize report) ;;
-    full) pipeline=(subdomains dns http shodan ports crawl history javascript cloud takeover nuclei screenshots prioritize report) ;;
+    passive) pipeline=(subdomains dns http shodan history cloud takeover prioritize normalize diff report) ;;
+    web) pipeline=(subdomains http crawl history javascript cloud screenshots prioritize normalize diff report) ;;
+    full) pipeline=(subdomains dns http shodan ports crawl history javascript cloud takeover nuclei screenshots prioritize normalize diff report) ;;
   esac
 fi
 
