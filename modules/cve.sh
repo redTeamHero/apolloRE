@@ -43,15 +43,10 @@ run_cve() {
   }
 
   if [[ -n "${CVE_ID:-}" ]]; then
-    if [[ ! "$CVE_ID" =~ ^CVE-[0-9]{4}-[0-9]{4,}$ ]]; then
-      log_warn "Ignoring invalid CVE ID: $CVE_ID"
+    if body="$(nvd_request "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=$CVE_ID" 2>/dev/null)"; then
+      emit_nvd_candidates "explicit:$CVE_ID" <<< "$body" >> "$candidates" || true
     else
-      log_info "Correlating requested CVE: $CVE_ID"
-      if body="$(nvd_request "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=$CVE_ID" 2>/dev/null)"; then
-        emit_nvd_candidates "explicit:$CVE_ID" <<< "$body" >> "$candidates" || true
-      else
-        log_warn "NVD lookup failed for $CVE_ID"
-      fi
+      log_warn "NVD lookup failed for $CVE_ID"
     fi
   else
     : > "$techs"
@@ -87,7 +82,7 @@ run_cve() {
     log_warn "nuclei not installed; CVE correlation completed without active verification"
     return 0
   fi
-  [[ -s "$alive" ]] || { log_warn "No live URLs for CVE safe checks"; return 0; }
+  [[ -s "$alive" ]] || { log_warn "No live URLs for CVE checks"; return 0; }
 
   local -a cmd=(
     nuclei -l "$alive"
@@ -97,13 +92,23 @@ run_cve() {
     -silent -jsonl
     -disable-unsigned-templates
     -exclude-tags fuzz,dos
-    -type http,dns,ssl,tcp
     -H "User-Agent: $APOLLO_USER_AGENT"
     -o "$detected"
   )
-  [[ -n "${CVE_ID:-}" ]] && cmd+=( -id "$CVE_ID" )
 
-  log_info "Running safe CVE verification with signed Nuclei templates"
+  case "${CVE_PROFILE:-safe}" in
+    safe)
+      cmd+=( -type http,dns,ssl,tcp )
+      log_info "Running safe CVE verification profile"
+      ;;
+    expanded)
+      # Broader signed-template coverage, but no opt-in to code/headless/fuzz
+      # execution and no unsigned or DoS/fuzz-tagged templates.
+      log_info "Running expanded CVE verification profile"
+      ;;
+  esac
+
+  [[ -n "${CVE_ID:-}" ]] && cmd+=( -id "$CVE_ID" )
   "${cmd[@]}" || log_warn "CVE verification completed with errors"
 
   log_info "CVE candidates: $(wc -l < "$candidates" 2>/dev/null || echo 0)"
