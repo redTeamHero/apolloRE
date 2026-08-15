@@ -1,94 +1,255 @@
+# ApolloRE v2
 
+ApolloRE is a modular Bash orchestrator for **authorized** domain reconnaissance and security assessment. Version 2 replaces the original monolithic workflow with selectable modules, scoped output, rate controls, resumable runs, local configuration support, passive enrichment, target prioritization, normalized asset inventory, and run-to-run change detection.
 
-## Domain Reconnaissance Script
+## Safety and scope
 
-This Bash script automates the process of reconnaissance and security assessment for a given domain. It performs a variety of checks and scans to gather information and identify potential security vulnerabilities. Below is a detailed breakdown of the script's functionality, usage instructions, and prerequisites.
+Only run ApolloRE against systems you own or have explicit permission to assess. ApolloRE writes a `scope.txt` for every run and modules constrain host-based processing to the supplied root domain and its subdomains.
 
-### Features
+Cloud and takeover modules are intentionally non-destructive: they produce candidate lists from already-collected DNS/URL data and do not claim resources, enumerate private objects, or attempt exploitation.
 
-1. **Log Management**: Captures and logs all output to `recon.log`, including error messages and information, with timestamps for better tracking.
-2. **Dependency Checks**: Ensures all required tools are installed before running the main tasks.
-3. **Disk Space Validation**: Verifies there is sufficient disk space available before proceeding.
-4. **Backup Configuration**: Creates a backup of the `proxychains` configuration to avoid potential issues.
-5. **Domain Validation**: Checks the format of the provided domain to ensure it is valid.
-6. **Reconnaissance Tasks**:
-   - **Subdomain Enumeration**: Identifies subdomains related to the main domain.
-   - **Port Scanning**: Scans for open ports on the identified subdomains.
-   - **JavaScript Analysis**: Examines JavaScript files for misconfigurations and secrets.
-   - **Social Engineering**: Uses Social Hunter to gather additional information.
-   - **Security Scans**: Executes scans using tools like `wpscan`, `shodan`, and `nuclei` to identify vulnerabilities.
-   - **Web Screenshot Capture**: Captures screenshots of web pages for visual analysis.
-7. **Cleanup**: Performs cleanup operations such as stopping services and removing temporary files.
+## Features
 
-### Usage
+- Modular pipelines: `passive`, `web`, and `full`
+- Custom module selection with `--modules`
+- `--resume` support
+- Configurable `--rate-limit`
+- Local config/API-key loading with a strict allow-list
+- Passive Shodan enrichment
+- Historical URL collection via gau/waybackurls
+- Cloud-storage candidate extraction
+- Passive takeover-candidate identification from CNAME records
+- Interesting-target prioritization
+- Normalized `assets.jsonl` inventory across recon modules
+- Automatic baseline and added/removed change detection
+- No `/home/user` hard-coded paths
+- Structured result directories
+- HTTP metadata in JSONL when supported by httpx
+- Markdown run and change reports
+- Graceful skipping of optional/missing tools
 
-To use this script, follow the steps below:
+## Modules
 
-1. **Basic Execution**:
-   ```bash
-   ./script.sh -d example.com
-   ```
-   - `-d <root_domain>`: Specify the root domain you want to analyze.
-   - `-v` (optional): Enable verbose logging to get more detailed output.
+| Module | Purpose | Primary tool |
+| --- | --- | --- |
+| `subdomains` | Enumerate and scope subdomains | subfinder |
+| `dns` | Collect DNS records | dig |
+| `http` | Probe live HTTP(S) services and fingerprint them | httpx/httpx-toolkit |
+| `shodan` | Enrich scoped assets from Shodan | shodan CLI + API key |
+| `ports` | Inventory exposed ports | naabu |
+| `crawl` | Crawl scoped web applications | katana |
+| `history` | Collect scoped historical URLs | gau / waybackurls |
+| `javascript` | Build a JavaScript URL inventory | built-in + optional subjs |
+| `cloud` | Extract cloud-storage endpoint candidates | built-in |
+| `takeover` | Flag provider-linked CNAMEs for manual review | built-in |
+| `nuclei` | Template-based authorized checks | nuclei |
+| `screenshots` | Capture visual web inventory | gowitness/aquatone |
+| `prioritize` | Score interesting hosts/URLs for analyst review | built-in |
+| `normalize` | Merge recon outputs into a normalized JSONL inventory | jq |
+| `diff` | Compare inventory with the previous baseline | jq + comm |
+| `report` | Generate run summary | built-in |
 
-2. **Verbose Mode**:
-   ```bash
-   ./script.sh -d example.com -v
-   ```
-   - The `-v` flag enables verbose logging, providing additional details about the execution.
+## Installation
 
-### Dependencies
-
-Ensure the following tools and commands are installed:
-
-- `subfinder`
-- `httpx-toolkit`
-- `naabu`
-- `aquatone`
-- `shodan`
-- `sqlmap`
-- `nuclei`
-- `wpscan`
-- `jfscan`
-- `curl`
-- `perl`
-- `python3`
-
-Make it executable:
-
-chmod +x install_tools.sh
-
-
-Run it:
-
-./install_tools.sh
-
-### Functions
-
-- **`log_with_timestamp`**: Adds timestamps and color-coded levels (INFO, ERROR, WARNING) to log messages.
-- **`check_command_success`**: Checks the success of the last command and logs a warning if it failed.
-- **`usage`**: Displays the usage information and exits if arguments are missing or incorrect.
-- **`check_dependencies`**: Verifies that all required tools are installed.
-- **`check_disk_space`**: Ensures there is at least 10MB of free disk space.
-- **`backup_proxychains`**: Creates a backup of the `proxychains` configuration file.
-- **`validate_domain`**: Validates the format of the provided domain.
-- **`cleanup`**: Performs cleanup tasks, including stopping services and removing temporary files.
-- **`extract_ip_addresses`**: Extracts IP addresses from the `ports.txt` file and saves them to `onlyip.txt`.
-- **`move_results`**: Moves all result files to the results directory.
-
-### Important Notes
-- **Paths and Configurations**: Adjust file paths and configurations as needed based on your environment and setup.
-- **Permissions**: Some commands require elevated permissions. Ensure you have the necessary privileges or adjust commands accordingly.
-
-### Example
-
-Here’s how to run the script to perform a reconnaissance scan on `example.com`:
+ApolloRE's installer targets Debian-family systems such as Kali, Debian, and Ubuntu. It does not run a full OS upgrade.
 
 ```bash
-./script.sh -d example.com -v
+chmod +x installer.sh apolloRE.sh
+./installer.sh --core
 ```
 
-- This command runs the script on `example.com` with verbose output enabled.
+Install optional screenshot/browser tooling too:
 
----
+```bash
+./installer.sh --all
+```
 
+Check dependencies without changing the machine:
+
+```bash
+./installer.sh --check
+```
+
+The installer also installs `gau`, `waybackurls`, and the Shodan CLI for enrichment modules. Current ProjectDiscovery releases require a recent Go version, so the installer validates Go before building those tools.
+
+## Configuration and API keys
+
+Create a private config directory and copy the template:
+
+```bash
+mkdir -p ~/.config/apollore
+cp config/apollo.env.example ~/.config/apollore/config.env
+chmod 600 ~/.config/apollore/config.env
+```
+
+ApolloRE reads `~/.config/apollore/config.env` by default. You can select another file with:
+
+```bash
+./apolloRE.sh -d example.com --config /absolute/path/apollo.env
+```
+
+Supported configuration keys are:
+
+```text
+APOLLO_OUTPUT_BASE
+APOLLO_RATE_LIMIT
+APOLLO_USER_AGENT
+NUCLEI_SEVERITIES
+SUBFINDER_PROVIDER_CONFIG
+SHODAN_API_KEY
+WPSCAN_API_TOKEN
+GITHUB_TOKEN
+```
+
+The config parser does **not** source or execute the file. It accepts only the keys above and treats values literally. Real config files and `.env` files are ignored by Git so API keys are not accidentally committed.
+
+For Subfinder, prefer its provider configuration file and set `SUBFINDER_PROVIDER_CONFIG` to that file's absolute path. `SHODAN_API_KEY` is consumed by the Shodan module without printing the secret value. Environment variables can also be used instead of storing secrets in the config file.
+
+## Usage
+
+```bash
+./apolloRE.sh -d example.com --mode passive
+./apolloRE.sh -d example.com --mode web --rate-limit 25
+./apolloRE.sh -d example.com --mode full --resume
+./apolloRE.sh -d example.com --modules subdomains,http,history,normalize,diff,report
+```
+
+Standard pipelines include normalization and change tracking automatically:
+
+```text
+passive: subdomains -> dns -> http -> shodan -> history -> cloud -> takeover -> prioritize -> normalize -> diff -> report
+web:     subdomains -> http -> crawl -> history -> javascript -> cloud -> screenshots -> prioritize -> normalize -> diff -> report
+full:    subdomains -> dns -> http -> shodan -> ports -> crawl -> history -> javascript -> cloud -> takeover -> nuclei -> screenshots -> prioritize -> normalize -> diff -> report
+```
+
+Run `./apolloRE.sh --help` for all options.
+
+## Normalized inventory
+
+Every standard run produces `assets.jsonl`. Each line is an independent JSON object, making it easy to process with `jq`, Python, SIEM tooling, cron jobs, or another database/import pipeline.
+
+Example records:
+
+```json
+{"type":"host","value":"api.example.com","source":"subdomains"}
+{"type":"url","value":"https://api.example.com","source":"http","alive":true}
+{"type":"service","value":"api.example.com:443","source":"ports","host":"api.example.com","port":443}
+{"type":"url","value":"https://example.com/old-api","source":"history","historical":true}
+{"type":"javascript","value":"https://example.com/app.js","source":"javascript"}
+{"type":"cloud_candidate","value":"example-assets.s3.amazonaws.com","source":"cloud"}
+{"type":"finding","value":"https://example.com","source":"nuclei","severity":"medium","template":"example-template"}
+```
+
+The normalization step deduplicates records using their type, value, and source while retaining useful fields such as `alive`, `historical`, `host`, `port`, `severity`, and template ID.
+
+## Change detection
+
+The first run for a domain creates:
+
+```text
+baseline/assets.jsonl
+```
+
+On each later run, ApolloRE compares the newly generated `assets.jsonl` against that baseline and produces:
+
+```text
+changes.md
+changes.added.jsonl
+changes.removed.jsonl
+```
+
+`changes.md` summarizes counts by record type and shows example additions/removals. After comparison, the current inventory becomes the new baseline, so the next run reports changes relative to the most recent completed run.
+
+This makes repeated execution useful for detecting events such as:
+
+```text
+new host        -> new subdomain discovered
+new service     -> host/port combination appeared
+new URL         -> crawler or historical source exposed a new endpoint
+new JavaScript  -> new script URL appeared
+new finding     -> a normalized Nuclei result appeared
+removed record  -> previously observed asset is no longer present in collected data
+```
+
+Change results mean "different from the previous ApolloRE inventory," not necessarily that the underlying system changed permanently. Recon providers, transient network conditions, rate limits, and `--resume` can affect collected data.
+
+## Output
+
+```text
+results/example.com/
+├── scope.txt
+├── report.md
+├── changes.md
+├── assets.jsonl
+├── changes.added.jsonl
+├── changes.removed.jsonl
+├── baseline/
+│   └── assets.jsonl
+├── assets/
+│   ├── subdomains.txt
+│   ├── alive.txt
+│   ├── dns.txt
+│   └── shodan.txt
+├── web/
+│   ├── http.jsonl
+│   ├── urls.txt
+│   ├── historical_urls.txt
+│   └── javascript.txt
+├── network/
+│   └── ports.txt
+├── findings/
+│   ├── nuclei.jsonl
+│   ├── cloud_candidates.txt
+│   ├── takeover_candidates.txt
+│   └── prioritized_targets.txt
+├── screenshots/
+└── logs/
+    └── apollore.log
+```
+
+`prioritized_targets.txt` contains a score followed by the host or URL. Higher scores indicate strings associated with higher-value surfaces such as administration, authentication, APIs, development/staging systems, or common operational dashboards. It is a triage aid, not a vulnerability verdict.
+
+## Monitoring example
+
+For an authorized domain, a simple recurring execution can reuse the same output base so baseline comparison works across runs:
+
+```bash
+./apolloRE.sh -d example.com --mode passive
+```
+
+Inspect only additions:
+
+```bash
+jq -r '[.type,.value,.source] | @tsv' results/example.com/changes.added.jsonl
+```
+
+Inspect the human-readable delta:
+
+```bash
+cat results/example.com/changes.md
+```
+
+## Recommended dependencies
+
+Core:
+
+- subfinder
+- httpx
+- dnsutils (`dig`)
+- naabu
+- katana
+- nuclei
+- gau
+- waybackurls
+- shodan CLI (for Shodan enrichment)
+- jq
+
+Optional:
+
+- gowitness or aquatone
+- Chromium/Chrome for gowitness
+- subjs
+
+## Design
+
+`apolloRE.sh` is the orchestrator. Shared functions live under `lib/`, while each reconnaissance stage implements a `run_<module>` function under `modules/`. External reconnaissance and passive enrichment remain separated from local analysis stages. `normalize` converts module-specific output into a common event-like schema, and `diff` compares that schema against the previous run's baseline for monitoring workflows.

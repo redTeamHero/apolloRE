@@ -1,0 +1,14 @@
+# ApolloRE local configuration / secrets
+config/apollo.env
+.env
+*.secret
+*.secrets
+
+# Scan output
+results/
+recon.log
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/

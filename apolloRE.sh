@@ -1,291 +1,128 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Add .local/bin to PATH
-export PATH=$PATH:/home/user/.local/bin
+APOLLO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export APOLLO_DIR
+export PATH="$HOME/.local/bin:$PATH"
 
-# Log file
-log_file="recon.log"
-exec > >(tee -a "$log_file") 2>&1
+# shellcheck source=lib/logging.sh
+source "$APOLLO_DIR/lib/logging.sh"
+# shellcheck source=lib/common.sh
+source "$APOLLO_DIR/lib/common.sh"
 
-# Function to display messages with a timestamp
-log_with_timestamp() {
-    local level=$1
-    local message=$2
-    local color_code=$3
-    echo -e "$(date '+%Y-%m-%d %H:%M:%S') $level: \e[${color_code}m$message\e[0m"
-}
+ORIGINAL_ARGS=("$@")
+ROOT_DOMAIN=""
+MODE="full"
+MODULES=""
+RESUME=false
+VERBOSE=false
+CONFIG_FILE="${APOLLO_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/apollore/config.env}"
 
-display_message() {
-    log_with_timestamp "INFO" "$1" "32"
-}
-
-display_error() {
-    log_with_timestamp "ERROR" "$1" "31"
-}
-
-display_warning() {
-    log_with_timestamp "WARNING" "$1" "33"
-}
-
-# Function to check if a command was successful and continue
-check_command_success() {
-    if [ $? -ne 0 ]; then
-        display_warning "$1 failed. Skipping..."
-    fi
-}
-
-# Function to display usage information
-usage() {
-    echo "Usage: $0 -d <root_domain> [-v]"
-    echo "  -d <root_domain> : Specify the root domain"
-    echo "  -v               : Enable verbose logging"
-    exit 1
-}
-
-# Function to check if required commands are installed
-check_dependencies() {
-    local dependencies=("subfinder" "httpx-toolkit" "naabu" "aquatone" "shodan" "sqlmap" "nuclei" "wpscan" "jfscan" "curl" "perl" "python3")
-    for cmd in "${dependencies[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            display_error "$cmd is not installed. Please install it to continue."
-            exit 1
-        fi
-    done
-}
-
-# Function to check disk space
-check_disk_space() {
-    local required_space=10000000  # 10MB in kilobytes
-    local available_space
-    available_space=$(df / | awk 'NR==2 {print $4}')
-    
-    if [ "$available_space" -lt "$required_space" ]; then
-        display_error "Not enough disk space. At least 10MB is required."
-        exit 1
-    fi
-}
-
-# Function to backup proxychains configuration
-backup_proxychains() {
-    local backup_file="/etc/proxychains4.conf.bak"
-    if [ ! -f "$backup_file" ]; then
-        sudo cp /etc/proxychains4.conf "$backup_file"
-    fi
-}
-
-# Function to validate domain format
-validate_domain() {
-    if ! [[ "$root" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-        display_error "Invalid domain format."
-        usage
-    fi
-}
-
-# Function to run cleanup tasks
-cleanup() {
-    display_message "Performing cleanup tasks..."
-    # Example cleanup tasks
-    cd ..
-    cd nipe
-    perl nipe.pl stop
-    perl nipe.pl status
-    rm -f /path/to/temp/files/*.tmp
-    display_message "Cleanup complete."
-}
-
-extract_ip_addresses() {
-    awk -F: '{print $1}' ports.txt | sort -u > onlyip.txt
-    check_command_success "Extracting IP addresses to onlyip.txt"
-}
-
-# Parse command-line arguments
-verbose=false
-while getopts ":d:v" opt; do
-    case ${opt} in
-        d )
-            root=$OPTARG
-            ;;
-        v )
-            verbose=true
-            ;;
-        \? )
-            usage
-            ;;
-    esac
+for ((i=0; i<${#ORIGINAL_ARGS[@]}; i++)); do
+  if [[ "${ORIGINAL_ARGS[$i]}" == "--config" ]]; then
+    CONFIG_FILE="${ORIGINAL_ARGS[$((i+1))]:-}"
+  fi
 done
 
-# Check if the root domain is provided
-if [ -z "$root" ]; then
-    display_error "No domain provided."
-    usage
-fi
+load_config "$CONFIG_FILE"
 
-# Validate domain format
-validate_domain
+RATE_LIMIT="${APOLLO_RATE_LIMIT:-50}"
+OUTPUT_BASE="${APOLLO_OUTPUT_BASE:-$PWD/results}"
+NUCLEI_SEVERITIES="${NUCLEI_SEVERITIES:-low,medium,high,critical}"
+APOLLO_USER_AGENT="${APOLLO_USER_AGENT:-ApolloRE/2.0}"
+export NUCLEI_SEVERITIES APOLLO_USER_AGENT
 
-# Check for required dependencies
-check_dependencies
+usage() {
+  cat <<'EOF'
+ApolloRE v2 - authorized reconnaissance orchestrator
 
-# Check disk space
-check_disk_space
+Usage:
+  ./apolloRE.sh -d example.com [options]
 
-# Backup existing proxychains configuration
-backup_proxychains
+Options:
+  -d, --domain DOMAIN       Root domain in authorized scope (required)
+  -m, --mode MODE           passive | web | full (default: full)
+      --modules LIST        Comma-separated modules
+      --rate-limit N        Requests/second hint for supported tools
+      --config FILE         Config file (default: ~/.config/apollore/config.env)
+      --resume              Skip stages whose expected output already exists
+  -o, --output DIR          Base results directory
+  -v, --verbose             Verbose logging
+  -h, --help                Show help
 
-# Create root domain directory and navigate into it
-mkdir -p "$root/results"
-cd "$root" || exit
-> ports.txt
-cd ..
-cp proxies.txt /home/user/fwd/$root
-cd $root
-display_message "[+] Hiding in Tor"
+Modules:
+  subdomains,dns,http,shodan,ports,crawl,history,javascript,cloud,takeover,
+  nuclei,screenshots,prioritize,normalize,diff,report
 
-# Start TOR channel
-cd ../nipe
-sudo perl nipe.pl start
-check_command_success "Nipe start"
-sudo perl nipe.pl status
-check_command_success "Nipe status"
-cd ..
+Examples:
+  ./apolloRE.sh -d example.com --mode passive
+  ./apolloRE.sh -d example.com --mode web --rate-limit 25
+  ./apolloRE.sh -d example.com --config ~/.config/apollore/config.env --resume
+  ./apolloRE.sh -d example.com --modules subdomains,http,history,normalize,diff,report
 
-display_message "[+] TOR Gateway Started Finding Subdomains for $root"
-
-display_message "Validating Proxies"
-python3 /home/user/scripts/check.py
-
-display_message "Rotating Alive Proxies"
-python3 /home/user/scripts/rotate.py
-
-display_message "Checking for s3 buckets!"
-s3scanner --bucket $root --enumerate -verbose > s3scan.txt
-
-# Start subdomain recon
-cd "$root" || exit
-
-# Find subdomains
-display_message "[+] Finding Alive Subdomains for $root"
-subfinder -d "$root" -t 100 -silent -o subs.txt
-check_command_success "Subfinder"
-
-# Check if subdomains are alive
-if [ -s subs.txt ]; then
-    httpx-toolkit -silent -no-color -l "subs.txt" -o "alive.txt"
-    check_command_success "httpx-toolkit"
-    sed -e 's/^https:\/\/\|^http:\/\///' alive.txt > jfscan.txt
-    check_command_success "Processing alive.txt to create jfscan.txt"
-else
-    display_error "subs.txt is empty. Skipping httpx-toolkit..."
-fi
-
-display_message "[+] Finding open ports for $root"
-
-# Ensure jfscan is installed and accessible
-/home/user/.local/bin/jfscan --targets /home/user/fwd/$root/alive.txt --yummy-ports -oi -q --nmap -o ports.txt
-check_command_success "jfscan"
-extract_ip_addresses
-# Check if alive.txt is not empty
-if [ ! -s alive.txt ]; then
-    display_warning "alive.txt is empty. Skipping subsequent steps..."
-    exit 1
-fi
-
-display_message "[+] Checking JavaScript misconfiguration for $root"
-
-# List JavaScript files
-if [ -s alive.txt ]; then
-    subjs -i "alive.txt" > js.txt
-    check_command_success "subjs"
-else
-    display_warning "Error with subjs"
-fi
-
-display_message "Finding hidden parameters"
-xnLinkFinder -i js.txt -v -sf $root
-
-display_message "Looking for secrets in js.txt"
-
-# Run the command for each URL
-/home/user/fwd/s/SecretFinder.py -i js.txt -o results.html
-
-# Start Social Hunter
-display_message "[+] Running Social Hunter on $root"
-cd ..
-output_file="socialhunter_output.txt"
-> "$output_file"
-
-./socialhunter -f /home/user/fwd/$root/alive.txt >> "$output_file"
-mv socialhunter_output.txt /home/user/fwd/$root
-check_command_success "socialhunter"
-cd $root
-display_message "[+] Finished running Social Hunter on $root"
-
-# Run wpscan for each domain
-
-sleep 3
-if [ -s alive.txt ]; then
-    proxychains wpscan --url "$root" -v -e vp vt cb dbe --wp-content-dir DIR --ignore-main-redirect --force --user-agent example@domain.com --api-token YOUR_API_TOKEN >> "$output_file"
-    check_command_success "wpscan for $root"
-else
-    display_warning "alive.txt is empty. Wpscan skipped..."
-fi
-
-display_message "[+] Finished Running wpscan on $root"
-
-display_message "[+] Running a Shodan search on $root"
-
-if [ -s alive.txt ]; then
-    shodan init YOUR_API_KEY
-    shodan search ssl.cert.subject.CN:"$root" 200 --fields ip_str | httpx | tee ips.txt
-    check_command_success "Shodan search"
-else
-    display_warning "alive.txt is empty. Skipping Shodan search..."
-fi
-
-display_message "[+] Nuclei scan start for $root"
-
-# Run Nuclei scan for alive domains
-if [ -s alive.txt ]; then
-    nuclei -rl 150 -c 25 -l "alive.txt" -v -H example@domain.com -severity low,medium,high,critical -as -o "vulns.txt"
-    check_command_success "Nuclei domain scan"
-else
-    display_warning "alive.txt is empty. Skipping Nuclei domain scan..."
-fi
-
-display_message "Nuclei scan complete"
-
-# Check if alive.txt exists and is not empty
-if [ ! -s alive.txt ]; then
-    display_error "File alive.txt not found or is empty!"
-    exit 1
-fi
-
-display_message "[+] Capturing Web Screenshots $root"
-
-# Take screenshots of alive domains
-if [ -s alive.txt ]; then
-    cat alive.txt | aquatone -silent -threads 3
-    check_command_success "aquatone"
-else
-    display_warning "alive.txt is empty. Skipping aquatone..."
-fi
-
-if [ -s js.txt ]; then
-    cat js.txt | aquatone -silent -threads 3
-    check_command_success "aquatone"
-else
-    display_warning "js.txt is empty. Skipping aquatone..."
-fi
-
-display_message "[+] Finished Capturing Web Screenshots $root"
-
-# Move results to the results directory
-move_results() {
-    mv s3scan.txt onlyip.txt alive.txt parameters.txt output.txt vulns.txt ports.txt socialhunter_output.txt wpscan_output.txt js.txt /home/user/fwd/$root/results
+Only scan systems you own or have explicit authorization to test.
+EOF
 }
-move_results
 
-# Clean up
-cleanup
+set -- "${ORIGINAL_ARGS[@]}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--domain) ROOT_DOMAIN="${2:-}"; shift 2 ;;
+    -m|--mode) MODE="${2:-}"; shift 2 ;;
+    --modules) MODULES="${2:-}"; shift 2 ;;
+    --rate-limit) RATE_LIMIT="${2:-}"; shift 2 ;;
+    --config) CONFIG_FILE="${2:-}"; shift 2 ;;
+    --resume) RESUME=true; shift ;;
+    -o|--output) OUTPUT_BASE="${2:-}"; shift 2 ;;
+    -v|--verbose) VERBOSE=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) log_error "Unknown option: $1"; usage; exit 2 ;;
+  esac
+done
 
-display_message "[+] Recon Finished. Check results in $root folder. Happy hunting!"
+[[ -n "$ROOT_DOMAIN" ]] || { log_error "A root domain is required."; usage; exit 2; }
+validate_domain "$ROOT_DOMAIN" || die "Invalid domain: $ROOT_DOMAIN"
+[[ "$RATE_LIMIT" =~ ^[0-9]+$ ]] && (( RATE_LIMIT > 0 )) || die "--rate-limit must be a positive integer"
+case "$MODE" in passive|web|full) ;; *) die "Invalid mode: $MODE" ;; esac
+
+export ROOT_DOMAIN MODE RESUME VERBOSE RATE_LIMIT CONFIG_FILE
+export RUN_DIR="$OUTPUT_BASE/$ROOT_DOMAIN"
+export ASSETS_DIR="$RUN_DIR/assets"
+export WEB_DIR="$RUN_DIR/web"
+export NETWORK_DIR="$RUN_DIR/network"
+export FINDINGS_DIR="$RUN_DIR/findings"
+export SCREENSHOTS_DIR="$RUN_DIR/screenshots"
+export LOG_DIR="$RUN_DIR/logs"
+mkdir -p "$ASSETS_DIR" "$WEB_DIR" "$NETWORK_DIR" "$FINDINGS_DIR" "$SCREENSHOTS_DIR" "$LOG_DIR"
+exec > >(tee -a "$LOG_DIR/apollore.log") 2>&1
+
+write_scope_file
+log_info "ApolloRE v2 starting for $ROOT_DOMAIN"
+log_info "Mode=$MODE rate_limit=$RATE_LIMIT resume=$RESUME output=$RUN_DIR"
+[[ -n "${SHODAN_API_KEY:-}" ]] && log_info "Shodan API key available via environment/config"
+[[ -n "${WPSCAN_API_TOKEN:-}" ]] && log_info "WPScan API token available via environment/config"
+[[ -n "${GITHUB_TOKEN:-}" ]] && log_info "GitHub token available via environment/config"
+[[ -n "${SUBFINDER_PROVIDER_CONFIG:-}" ]] && log_info "Subfinder provider config: $SUBFINDER_PROVIDER_CONFIG"
+
+if [[ -n "$MODULES" ]]; then
+  IFS=',' read -r -a pipeline <<< "$MODULES"
+else
+  case "$MODE" in
+    passive) pipeline=(subdomains dns http shodan history cloud takeover prioritize normalize diff report) ;;
+    web) pipeline=(subdomains http crawl history javascript cloud screenshots prioritize normalize diff report) ;;
+    full) pipeline=(subdomains dns http shodan ports crawl history javascript cloud takeover nuclei screenshots prioritize normalize diff report) ;;
+  esac
+fi
+
+for module in "${pipeline[@]}"; do
+  module="${module//[[:space:]]/}"
+  [[ "$module" =~ ^[a-z]+$ ]] || die "Invalid module name: $module"
+  module_file="$APOLLO_DIR/modules/$module.sh"
+  [[ -f "$module_file" ]] || die "Unknown module: $module"
+  log_info "Running module: $module"
+  # shellcheck source=/dev/null
+  source "$module_file"
+  "run_${module}"
+done
+
+log_info "ApolloRE finished. Results: $RUN_DIR"
