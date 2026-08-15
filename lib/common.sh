@@ -128,6 +128,15 @@ append_exact_scope_hosts() {
   done < "$RUN_DIR/scope.txt"
 }
 
+scope_roots() {
+  local pattern
+  [[ -f "$RUN_DIR/scope.txt" ]] || return 0
+  while IFS= read -r pattern; do
+    [[ "$pattern" == \*.* ]] && printf '%s\n' "${pattern#*.}"
+  done < "$RUN_DIR/scope.txt"
+  printf '%s\n' "$ROOT_DOMAIN"
+}
+
 trim_value() {
   local value="$1"
   value="${value#\"}"; value="${value%\"}"
