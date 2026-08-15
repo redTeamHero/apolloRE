@@ -1,80 +1,125 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# -----------------------------------------
-#  Pentesting Tools Auto Installer (Kali)
-#  Author: ducky
-# -----------------------------------------
+MODE="core"
+NO_APT=false
+CHECK_ONLY=false
 
-# Colors
-GREEN="\e[32m"
-RED="\e[31m"
-YELLOW="\e[33m"
-RESET="\e[0m"
+GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; RESET='\033[0m'
+info() { printf "%b[*]%b %s\n" "$GREEN" "$RESET" "$*"; }
+warn() { printf "%b[!]%b %s\n" "$YELLOW" "$RESET" "$*"; }
+err()  { printf "%b[-]%b %s\n" "$RED" "$RESET" "$*" >&2; }
 
-echo -e "${GREEN}[*] Updating system...${RESET}"
-sudo apt update -y && sudo apt upgrade -y
+usage() {
+  cat <<'EOF'
+ApolloRE v2 installer (Debian/Kali/Ubuntu)
 
-install_apt_pkg() {
-    PKG=$1
-    echo -e "${GREEN}[*] Installing ${PKG}...${RESET}"
-    sudo apt install -y "$PKG"
-    if dpkg -l | grep -q "$PKG"; then
-        echo -e "${GREEN}[+] ${PKG} installed successfully.${RESET}"
-    else
-        echo -e "${RED}[-] Failed to install ${PKG}.${RESET}"
-    fi
+Usage:
+  ./installer.sh [--core|--all] [--no-apt] [--check]
+
+Options:
+  --core     Install tools used by the standard ApolloRE pipeline (default)
+  --all      Install core tools plus optional screenshot/browser tooling
+  --no-apt   Do not install OS packages
+  --check    Only report dependency status; make no changes
+  -h,--help  Show help
+
+The installer does NOT run a full system upgrade and does not configure API keys.
+EOF
 }
 
-install_gem_pkg() {
-    PKG=$1
-    echo -e "${GREEN}[*] Installing Ruby gem: ${PKG}...${RESET}"
-    sudo gem install "$PKG"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --core) MODE="core"; shift ;;
+    --all) MODE="all"; shift ;;
+    --no-apt) NO_APT=true; shift ;;
+    --check) CHECK_ONLY=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) err "Unknown option: $1"; usage; exit 2 ;;
+  esac
+done
+
+export PATH="$HOME/go/bin:$HOME/.local/bin:$PATH"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+version_ge() {
+  # Returns success when $1 >= $2 for dotted numeric versions.
+  [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]
 }
 
-install_pip_pkg() {
-    PKG=$1
-    echo -e "${GREEN}[*] Installing Python pip package: ${PKG}...${RESET}"
-    pip3 install "$PKG"
+check_status() {
+  local tools=(subfinder httpx naabu katana nuclei dig)
+  [[ "$MODE" == "all" ]] && tools+=(gowitness chromium chromium-browser)
+  info "Dependency status"
+  for tool in "${tools[@]}"; do
+    if have "$tool"; then printf '  [ok] %s -> %s\n' "$tool" "$(command -v "$tool")"; else printf '  [--] %s\n' "$tool"; fi
+  done
 }
 
-echo -e "${YELLOW}==============================="
-echo -e " Installing Required Tools"
-echo -e "===============================${RESET}"
+if "$CHECK_ONLY"; then
+  check_status
+  exit 0
+fi
 
-# APT tools
-install_apt_pkg "aquatone"
-install_apt_pkg "sqlmap"
-install_apt_pkg "nuclei"
-install_apt_pkg "curl"
-install_apt_pkg "perl"
-install_apt_pkg "python3"
-install_apt_pkg "python3-pip"
-install_apt_pkg "ruby-full"
+if ! "$NO_APT"; then
+  have apt-get || { err "apt-get not found. Re-run with --no-apt and install prerequisites manually."; exit 1; }
+  info "Refreshing apt package metadata"
+  sudo apt-get update
 
-# WPScan (Ruby Gem)
-install_gem_pkg "wpscan"
+  base_packages=(ca-certificates curl git jq dnsutils libpcap-dev golang-go)
+  if [[ "$MODE" == "all" ]]; then
+    base_packages+=(chromium)
+  fi
 
-# Shodan (pip)
-install_pip_pkg "shodan"
+  info "Installing OS prerequisites: ${base_packages[*]}"
+  if ! sudo apt-get install -y "${base_packages[@]}"; then
+    warn "One or more apt packages failed. Continuing so existing tools can still be validated."
+  fi
+fi
 
-# JFscan (pip)
-install_pip_pkg "jfscan"
+have go || { err "Go is required to install ApolloRE's core tools."; exit 1; }
+GO_VERSION="$(go version | awk '{print $3}' | sed 's/^go//')"
+info "Detected Go $GO_VERSION"
+if ! version_ge "$GO_VERSION" "1.25"; then
+  err "Go 1.25+ is recommended for the current httpx/katana releases. Upgrade Go, then rerun installer.sh."
+  exit 1
+fi
 
-echo -e "${GREEN}"
-echo "=================================="
-echo "[+] Installation Complete!"
-echo "=================================="
-echo " Tools Installed:"
-echo "  • aquatone"
-echo "  • shodan"
-echo "  • sqlmap"
-echo "  • nuclei"
-echo "  • wpscan"
-echo "  • jfscan"
-echo "  • curl"
-echo "  • perl"
-echo "  • python3 + pip"
-echo "=================================="
-echo -e "${RESET}"
+install_go_tool() {
+  local name="$1" package="$2"
+  if have "$name"; then
+    info "$name already installed: $(command -v "$name")"
+    return 0
+  fi
+  info "Installing $name"
+  if GOBIN="$HOME/.local/bin" go install -v "$package"; then
+    have "$name" && info "$name installed successfully" || warn "$name built but is not visible in PATH"
+  else
+    warn "Failed to install $name"
+  fi
+}
 
-exit 0
+mkdir -p "$HOME/.local/bin"
+
+install_go_tool subfinder 'github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest'
+install_go_tool httpx 'github.com/projectdiscovery/httpx/cmd/httpx@latest'
+install_go_tool naabu 'github.com/projectdiscovery/naabu/v2/cmd/naabu@latest'
+install_go_tool katana 'github.com/projectdiscovery/katana/cmd/katana@latest'
+install_go_tool nuclei 'github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest'
+
+if [[ "$MODE" == "all" ]]; then
+  install_go_tool gowitness 'github.com/sensepost/gowitness@latest'
+fi
+
+# Update nuclei templates only after nuclei is available.
+if have nuclei; then
+  info "Updating Nuclei templates"
+  nuclei -ut >/dev/null 2>&1 || warn "Could not update Nuclei templates"
+fi
+
+printf '\n'
+check_status
+printf '\n'
+info "Installer finished. Ensure $HOME/.local/bin is in PATH."
+info "Copy config/apollo.env.example to ~/.config/apollore/config.env to configure ApolloRE."
