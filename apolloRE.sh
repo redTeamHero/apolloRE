@@ -51,11 +51,15 @@ Options:
   -v, --verbose             Verbose logging
   -h, --help                Show help
 
+Modules:
+  subdomains,dns,http,shodan,ports,crawl,history,javascript,cloud,takeover,
+  nuclei,screenshots,prioritize,report
+
 Examples:
   ./apolloRE.sh -d example.com --mode passive
   ./apolloRE.sh -d example.com --mode web --rate-limit 25
   ./apolloRE.sh -d example.com --config ~/.config/apollore/config.env --resume
-  ./apolloRE.sh -d example.com --modules subdomains,http,dns,report
+  ./apolloRE.sh -d example.com --modules subdomains,http,history,prioritize,report
 
 Only scan systems you own or have explicit authorization to test.
 EOF
@@ -105,9 +109,9 @@ if [[ -n "$MODULES" ]]; then
   IFS=',' read -r -a pipeline <<< "$MODULES"
 else
   case "$MODE" in
-    passive) pipeline=(subdomains dns http report) ;;
-    web) pipeline=(subdomains http crawl javascript screenshots report) ;;
-    full) pipeline=(subdomains dns http ports crawl javascript nuclei screenshots report) ;;
+    passive) pipeline=(subdomains dns http shodan history cloud takeover prioritize report) ;;
+    web) pipeline=(subdomains http crawl history javascript cloud screenshots prioritize report) ;;
+    full) pipeline=(subdomains dns http shodan ports crawl history javascript cloud takeover nuclei screenshots prioritize report) ;;
   esac
 fi
 
