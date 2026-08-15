@@ -34,3 +34,32 @@ filter_scope_hosts() {
   done < "$input"
   sort -u -o "$output" "$output"
 }
+
+trim_value() {
+  local value="$1"
+  value="${value#\"}"; value="${value%\"}"
+  value="${value#\'}"; value="${value%\'}"
+  printf '%s' "$value"
+}
+
+load_config() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+
+  local key raw value
+  while IFS='=' read -r key raw || [[ -n "${key:-}" ]]; do
+    key="${key//[[:space:]]/}"
+    [[ -z "$key" || "$key" == \#* ]] && continue
+    value="$(trim_value "${raw:-}")"
+
+    case "$key" in
+      APOLLO_OUTPUT_BASE|APOLLO_RATE_LIMIT|APOLLO_USER_AGENT|NUCLEI_SEVERITIES|SUBFINDER_PROVIDER_CONFIG|SHODAN_API_KEY|WPSCAN_API_TOKEN|GITHUB_TOKEN)
+        printf -v "$key" '%s' "$value"
+        export "$key"
+        ;;
+      *) log_warn "Ignoring unsupported config key: $key" ;;
+    esac
+  done < "$file"
+
+  log_info "Loaded config: $file"
+}
