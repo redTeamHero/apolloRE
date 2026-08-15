@@ -18,7 +18,7 @@ Usage:
   ./installer.sh [--core|--all] [--no-apt] [--check]
 
 Options:
-  --core     Install tools used by the standard ApolloRE pipeline (default)
+  --core     Install standard ApolloRE pipeline tools (default)
   --all      Install core tools plus optional screenshot/browser tooling
   --no-apt   Do not install OS packages
   --check    Only report dependency status; make no changes
@@ -40,16 +40,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 export PATH="$HOME/go/bin:$HOME/.local/bin:$PATH"
-
 have() { command -v "$1" >/dev/null 2>&1; }
 
 version_ge() {
-  # Returns success when $1 >= $2 for dotted numeric versions.
   [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" == "$2" ]]
 }
 
 check_status() {
-  local tools=(subfinder httpx naabu katana nuclei dig)
+  local tools=(subfinder httpx naabu katana nuclei dig gau waybackurls shodan jq)
   [[ "$MODE" == "all" ]] && tools+=(gowitness chromium chromium-browser)
   info "Dependency status"
   for tool in "${tools[@]}"; do
@@ -67,10 +65,8 @@ if ! "$NO_APT"; then
   info "Refreshing apt package metadata"
   sudo apt-get update
 
-  base_packages=(ca-certificates curl git jq dnsutils libpcap-dev golang-go)
-  if [[ "$MODE" == "all" ]]; then
-    base_packages+=(chromium)
-  fi
+  base_packages=(ca-certificates curl git jq dnsutils libpcap-dev golang-go pipx)
+  [[ "$MODE" == "all" ]] && base_packages+=(chromium)
 
   info "Installing OS prerequisites: ${base_packages[*]}"
   if ! sudo apt-get install -y "${base_packages[@]}"; then
@@ -82,7 +78,7 @@ have go || { err "Go is required to install ApolloRE's core tools."; exit 1; }
 GO_VERSION="$(go version | awk '{print $3}' | sed 's/^go//')"
 info "Detected Go $GO_VERSION"
 if ! version_ge "$GO_VERSION" "1.25"; then
-  err "Go 1.25+ is recommended for the current httpx/katana releases. Upgrade Go, then rerun installer.sh."
+  err "Go 1.25+ is recommended for current ProjectDiscovery releases. Upgrade Go, then rerun installer.sh."
   exit 1
 fi
 
@@ -107,12 +103,22 @@ install_go_tool httpx 'github.com/projectdiscovery/httpx/cmd/httpx@latest'
 install_go_tool naabu 'github.com/projectdiscovery/naabu/v2/cmd/naabu@latest'
 install_go_tool katana 'github.com/projectdiscovery/katana/cmd/katana@latest'
 install_go_tool nuclei 'github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest'
+install_go_tool gau 'github.com/lc/gau/v2/cmd/gau@latest'
+install_go_tool waybackurls 'github.com/tomnomnom/waybackurls@latest'
 
 if [[ "$MODE" == "all" ]]; then
   install_go_tool gowitness 'github.com/sensepost/gowitness@latest'
 fi
 
-# Update nuclei templates only after nuclei is available.
+if ! have shodan; then
+  if have pipx; then
+    info "Installing Shodan CLI with pipx"
+    pipx install shodan >/dev/null 2>&1 || warn "Failed to install Shodan CLI"
+  else
+    warn "pipx unavailable; install the Shodan CLI manually if you want Shodan enrichment"
+  fi
+fi
+
 if have nuclei; then
   info "Updating Nuclei templates"
   nuclei -ut >/dev/null 2>&1 || warn "Could not update Nuclei templates"
@@ -122,4 +128,4 @@ printf '\n'
 check_status
 printf '\n'
 info "Installer finished. Ensure $HOME/.local/bin is in PATH."
-info "Copy config/apollo.env.example to ~/.config/apollore/config.env to configure ApolloRE."
+info "Copy config/apollo.env.example to ~/.config/apollore/config.env to configure API keys."
