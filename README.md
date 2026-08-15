@@ -1,80 +1,73 @@
 # ApolloRE v2
 
-ApolloRE is a modular Bash orchestrator for **authorized** domain reconnaissance and security assessment. Version 2 replaces the original monolithic workflow with selectable modules, scoped output, rate controls, resumable runs, local configuration support, passive enrichment, target prioritization, normalized asset inventory, and run-to-run change detection.
+ApolloRE is a modular Bash orchestrator for **authorized** domain reconnaissance, attack-surface mapping, vulnerability triage, and continuous asset monitoring.
 
 ## Safety and scope
 
-Only run ApolloRE against systems you own or have explicit permission to assess. ApolloRE writes a `scope.txt` for every run and modules constrain host-based processing to the supplied root domain and its subdomains.
+Only run ApolloRE against systems you own or have explicit permission to assess. ApolloRE writes a `scope.txt` for every run and constrains host-based processing to the supplied root domain and its subdomains.
 
-Cloud and takeover modules are intentionally non-destructive: they produce candidate lists from already-collected DNS/URL data and do not claim resources, enumerate private objects, or attempt exploitation.
+Cloud and takeover modules are intentionally non-destructive. The CVE module separates **correlation** from **detection** so a version/technology match is not reported as proof of vulnerability.
 
 ## Features
 
-- Modular pipelines: `passive`, `web`, and `full`
+- Modular `passive`, `web`, and `full` pipelines
 - Custom module selection with `--modules`
 - `--resume` support
-- Configurable `--rate-limit`
+- Configurable rate limiting
 - Local config/API-key loading with a strict allow-list
 - Passive Shodan enrichment
 - Historical URL collection via gau/waybackurls
-- Cloud-storage candidate extraction
-- Passive takeover-candidate identification from CNAME records
+- Cloud-storage and takeover candidate extraction
+- CVE correlation using NIST NVD metadata
+- Restricted CVE safe checks using signed Nuclei templates
+- `--cve CVE-YYYY-NNNN` targeted CVE mode
 - Interesting-target prioritization
-- Normalized `assets.jsonl` inventory across recon modules
+- Normalized `assets.jsonl` inventory
 - Automatic baseline and added/removed change detection
-- No `/home/user` hard-coded paths
-- Structured result directories
-- HTTP metadata in JSONL when supported by httpx
-- Markdown run and change reports
-- Graceful skipping of optional/missing tools
+- Structured Markdown and JSONL output
 
 ## Modules
 
-| Module | Purpose | Primary tool |
+| Module | Purpose | Primary tool/source |
 | --- | --- | --- |
 | `subdomains` | Enumerate and scope subdomains | subfinder |
 | `dns` | Collect DNS records | dig |
-| `http` | Probe live HTTP(S) services and fingerprint them | httpx/httpx-toolkit |
-| `shodan` | Enrich scoped assets from Shodan | shodan CLI + API key |
+| `http` | Probe live HTTP(S) services and fingerprint them | httpx |
+| `shodan` | Enrich scoped assets | Shodan |
 | `ports` | Inventory exposed ports | naabu |
 | `crawl` | Crawl scoped web applications | katana |
 | `history` | Collect scoped historical URLs | gau / waybackurls |
 | `javascript` | Build a JavaScript URL inventory | built-in + optional subjs |
 | `cloud` | Extract cloud-storage endpoint candidates | built-in |
 | `takeover` | Flag provider-linked CNAMEs for manual review | built-in |
-| `nuclei` | Template-based authorized checks | nuclei |
+| `cve` | Correlate technologies to CVEs and run restricted checks | NVD + Nuclei |
+| `nuclei` | General template-based authorized checks | nuclei |
 | `screenshots` | Capture visual web inventory | gowitness/aquatone |
-| `prioritize` | Score interesting hosts/URLs for analyst review | built-in |
-| `normalize` | Merge recon outputs into a normalized JSONL inventory | jq |
+| `prioritize` | Score interesting hosts/URLs | built-in |
+| `normalize` | Merge outputs into normalized JSONL | jq |
 | `diff` | Compare inventory with the previous baseline | jq + comm |
 | `report` | Generate run summary | built-in |
 
 ## Installation
-
-ApolloRE's installer targets Debian-family systems such as Kali, Debian, and Ubuntu. It does not run a full OS upgrade.
 
 ```bash
 chmod +x installer.sh apolloRE.sh
 ./installer.sh --core
 ```
 
-Install optional screenshot/browser tooling too:
+Optional browser/screenshot tooling:
 
 ```bash
 ./installer.sh --all
 ```
 
-Check dependencies without changing the machine:
+Dependency check only:
 
 ```bash
 ./installer.sh --check
 ```
 
-The installer also installs `gau`, `waybackurls`, and the Shodan CLI for enrichment modules. Current ProjectDiscovery releases require a recent Go version, so the installer validates Go before building those tools.
-
-## Configuration and API keys
-
-Create a private config directory and copy the template:
+## Configuration
 
 ```bash
 mkdir -p ~/.config/apollore
@@ -82,75 +75,131 @@ cp config/apollo.env.example ~/.config/apollore/config.env
 chmod 600 ~/.config/apollore/config.env
 ```
 
-ApolloRE reads `~/.config/apollore/config.env` by default. You can select another file with:
-
-```bash
-./apolloRE.sh -d example.com --config /absolute/path/apollo.env
-```
-
-Supported configuration keys are:
+Supported keys include:
 
 ```text
 APOLLO_OUTPUT_BASE
 APOLLO_RATE_LIMIT
 APOLLO_USER_AGENT
 NUCLEI_SEVERITIES
+CVE_MAX_TECH_QUERIES
 SUBFINDER_PROVIDER_CONFIG
 SHODAN_API_KEY
+NVD_API_KEY
 WPSCAN_API_TOKEN
 GITHUB_TOKEN
 ```
 
-The config parser does **not** source or execute the file. It accepts only the keys above and treats values literally. Real config files and `.env` files are ignored by Git so API keys are not accidentally committed.
+The config parser does not `source` or execute the file. Values are treated literally and only allow-listed keys are accepted.
 
-For Subfinder, prefer its provider configuration file and set `SUBFINDER_PROVIDER_CONFIG` to that file's absolute path. `SHODAN_API_KEY` is consumed by the Shodan module without printing the secret value. Environment variables can also be used instead of storing secrets in the config file.
+`NVD_API_KEY` is optional. Without a key ApolloRE uses the public NVD API rate and intentionally spaces correlation requests. `CVE_MAX_TECH_QUERIES` limits the number of detected technology strings queried per run to reduce noise and API usage.
 
 ## Usage
 
+Full authorized scan:
+
 ```bash
-./apolloRE.sh -d example.com --mode passive
-./apolloRE.sh -d example.com --mode web --rate-limit 25
-./apolloRE.sh -d example.com --mode full --resume
-./apolloRE.sh -d example.com --modules subdomains,http,history,normalize,diff,report
+./apolloRE.sh -d example.com --mode full
 ```
 
-Standard pipelines include normalization and change tracking automatically:
+Target one CVE:
+
+```bash
+./apolloRE.sh -d example.com --cve CVE-2024-12345
+```
+
+Run only discovery plus CVE processing:
+
+```bash
+./apolloRE.sh -d example.com \
+  --modules subdomains,http,cve,normalize,report
+```
+
+Standard pipelines:
 
 ```text
 passive: subdomains -> dns -> http -> shodan -> history -> cloud -> takeover -> prioritize -> normalize -> diff -> report
 web:     subdomains -> http -> crawl -> history -> javascript -> cloud -> screenshots -> prioritize -> normalize -> diff -> report
-full:    subdomains -> dns -> http -> shodan -> ports -> crawl -> history -> javascript -> cloud -> takeover -> nuclei -> screenshots -> prioritize -> normalize -> diff -> report
+full:    subdomains -> dns -> http -> shodan -> ports -> crawl -> history -> javascript -> cloud -> takeover -> cve -> nuclei -> screenshots -> prioritize -> normalize -> diff -> report
 ```
 
-Run `./apolloRE.sh --help` for all options.
+## CVE workflow
+
+ApolloRE deliberately separates CVE results into two states.
+
+### 1. Correlated
+
+The HTTP fingerprint data is reduced to a limited set of technology strings. ApolloRE queries the NIST NVD CVE API for metadata related to those strings and writes candidate records to:
+
+```text
+findings/cve_candidates.jsonl
+```
+
+Example conceptually:
+
+```json
+{
+  "type": "cve_candidate",
+  "cve": "CVE-2024-12345",
+  "status": "correlated",
+  "correlation": "technology:ExampleServer:4.2",
+  "source": "nvd",
+  "severity": "HIGH"
+}
+```
+
+A correlation is **not a vulnerability verdict**. Product banners may be inaccurate, vendors may backport patches, and keyword correlation can produce irrelevant CVEs.
+
+When `--cve CVE-...` is supplied, ApolloRE queries NVD directly for that CVE rather than performing broad technology correlation.
+
+### 2. Detected
+
+If Nuclei and live URLs are available, the CVE module performs a restricted verification pass and writes matches to:
+
+```text
+findings/cve_detected.jsonl
+```
+
+The safe-check profile:
+
+- selects templates tagged `cve`
+- uses the configured severity list
+- requires signed templates
+- excludes `fuzz` and `dos` tags
+- only enables HTTP, DNS, SSL, and TCP protocols
+- does **not** enable code templates
+- does **not** enable headless templates
+- does **not** enable fuzz templates
+- respects ApolloRE's rate limit
+
+A Nuclei match is labeled **detected**, not automatically **validated**. Manual confirmation within the program's rules is still recommended before filing a report.
 
 ## Normalized inventory
 
-Every standard run produces `assets.jsonl`. Each line is an independent JSON object, making it easy to process with `jq`, Python, SIEM tooling, cron jobs, or another database/import pipeline.
+Every standard run produces:
 
-Example records:
-
-```json
-{"type":"host","value":"api.example.com","source":"subdomains"}
-{"type":"url","value":"https://api.example.com","source":"http","alive":true}
-{"type":"service","value":"api.example.com:443","source":"ports","host":"api.example.com","port":443}
-{"type":"url","value":"https://example.com/old-api","source":"history","historical":true}
-{"type":"javascript","value":"https://example.com/app.js","source":"javascript"}
-{"type":"cloud_candidate","value":"example-assets.s3.amazonaws.com","source":"cloud"}
-{"type":"finding","value":"https://example.com","source":"nuclei","severity":"medium","template":"example-template"}
+```text
+assets.jsonl
 ```
 
-The normalization step deduplicates records using their type, value, and source while retaining useful fields such as `alive`, `historical`, `host`, `port`, `severity`, and template ID.
+The normalized inventory includes hosts, live URLs, services, crawled/historical URLs, JavaScript, cloud/takeover candidates, general Nuclei findings, CVE correlations, and CVE detections.
+
+CVE examples:
+
+```json
+{"type":"cve_candidate","value":"CVE-2024-12345","source":"nvd","status":"correlated","severity":"HIGH"}
+{"type":"cve_detection","value":"https://portal.example.com","source":"nuclei-cve","status":"detected","severity":"high","template":"CVE-2024-12345"}
+```
 
 ## Change detection
 
-The first run for a domain creates:
+The first completed run creates:
 
 ```text
 baseline/assets.jsonl
 ```
 
-On each later run, ApolloRE compares the newly generated `assets.jsonl` against that baseline and produces:
+Later runs produce:
 
 ```text
 changes.md
@@ -158,20 +207,7 @@ changes.added.jsonl
 changes.removed.jsonl
 ```
 
-`changes.md` summarizes counts by record type and shows example additions/removals. After comparison, the current inventory becomes the new baseline, so the next run reports changes relative to the most recent completed run.
-
-This makes repeated execution useful for detecting events such as:
-
-```text
-new host        -> new subdomain discovered
-new service     -> host/port combination appeared
-new URL         -> crawler or historical source exposed a new endpoint
-new JavaScript  -> new script URL appeared
-new finding     -> a normalized Nuclei result appeared
-removed record  -> previously observed asset is no longer present in collected data
-```
-
-Change results mean "different from the previous ApolloRE inventory," not necessarily that the underlying system changed permanently. Recon providers, transient network conditions, rate limits, and `--resume` can affect collected data.
+Because CVE candidates/detections are normalized too, recurring runs can surface a newly correlated or newly detected CVE as a change event.
 
 ## Output
 
@@ -192,12 +228,15 @@ results/example.com/
 │   └── shodan.txt
 ├── web/
 │   ├── http.jsonl
+│   ├── technologies.txt
 │   ├── urls.txt
 │   ├── historical_urls.txt
 │   └── javascript.txt
 ├── network/
 │   └── ports.txt
 ├── findings/
+│   ├── cve_candidates.jsonl
+│   ├── cve_detected.jsonl
 │   ├── nuclei.jsonl
 │   ├── cloud_candidates.txt
 │   ├── takeover_candidates.txt
@@ -207,49 +246,21 @@ results/example.com/
     └── apollore.log
 ```
 
-`prioritized_targets.txt` contains a score followed by the host or URL. Higher scores indicate strings associated with higher-value surfaces such as administration, authentication, APIs, development/staging systems, or common operational dashboards. It is a triage aid, not a vulnerability verdict.
-
 ## Monitoring example
-
-For an authorized domain, a simple recurring execution can reuse the same output base so baseline comparison works across runs:
 
 ```bash
 ./apolloRE.sh -d example.com --mode passive
-```
-
-Inspect only additions:
-
-```bash
-jq -r '[.type,.value,.source] | @tsv' results/example.com/changes.added.jsonl
-```
-
-Inspect the human-readable delta:
-
-```bash
 cat results/example.com/changes.md
 ```
 
-## Recommended dependencies
+For CVE-focused monitoring on an authorized target:
 
-Core:
-
-- subfinder
-- httpx
-- dnsutils (`dig`)
-- naabu
-- katana
-- nuclei
-- gau
-- waybackurls
-- shodan CLI (for Shodan enrichment)
-- jq
-
-Optional:
-
-- gowitness or aquatone
-- Chromium/Chrome for gowitness
-- subjs
+```bash
+./apolloRE.sh -d example.com --mode full
+jq -r 'select(.type=="cve_detection") | [.template,.value,.severity] | @tsv' \
+  results/example.com/changes.added.jsonl
+```
 
 ## Design
 
-`apolloRE.sh` is the orchestrator. Shared functions live under `lib/`, while each reconnaissance stage implements a `run_<module>` function under `modules/`. External reconnaissance and passive enrichment remain separated from local analysis stages. `normalize` converts module-specific output into a common event-like schema, and `diff` compares that schema against the previous run's baseline for monitoring workflows.
+`apolloRE.sh` is the orchestrator. Shared functions live in `lib/`; each stage implements a `run_<module>` function under `modules/`. The `cve` module keeps correlation, restricted automated detection, and later human validation conceptually separate instead of silently turning a full recon run into an exploitation pipeline.

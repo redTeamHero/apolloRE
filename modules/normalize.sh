@@ -45,6 +45,18 @@ run_normalize() {
     while IFS= read -r value; do [[ -n "$value" ]] && emit_json takeover_candidate "$value" takeover; done < "$FINDINGS_DIR/takeover_candidates.txt"
   fi
 
+  if [[ -f "$FINDINGS_DIR/cve_candidates.jsonl" ]]; then
+    while IFS= read -r line; do
+      jq -c '{type:"cve_candidate",value:(.cve // "unknown"),source:"nvd",status:(.status // "correlated"),severity:(.severity // "UNKNOWN"),correlation:(.correlation // ""),description:(.description // "")}' <<< "$line" >> "$tmp" 2>/dev/null || true
+    done < "$FINDINGS_DIR/cve_candidates.jsonl"
+  fi
+
+  if [[ -f "$FINDINGS_DIR/cve_detected.jsonl" ]]; then
+    while IFS= read -r line; do
+      jq -c '{type:"cve_detection",value:(.matched_at // .host // .template_id // "unknown"),source:"nuclei-cve",status:"detected",severity:(.info.severity // "unknown"),template:(.template_id // .template // "")}' <<< "$line" >> "$tmp" 2>/dev/null || true
+    done < "$FINDINGS_DIR/cve_detected.jsonl"
+  fi
+
   if [[ -f "$FINDINGS_DIR/nuclei.jsonl" ]]; then
     while IFS= read -r line; do
       jq -c '{type:"finding",value:(.matched_at // .host // .template_id // "unknown"),source:"nuclei",severity:(.info.severity // "unknown"),template:(.template_id // .template // "")}' <<< "$line" >> "$tmp" 2>/dev/null || true
