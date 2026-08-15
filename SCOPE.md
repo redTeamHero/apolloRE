@@ -1,51 +1,58 @@
 # ApolloRE Scope Controls
 
-ApolloRE can now enforce an explicit DNS scope for every scan.
+ApolloRE supports explicit allow and exclusion policies for authorized scans.
+
+## Supported entries
+
+```text
+example.com          exact DNS host
+*.example.com        DNS subdomains beneath example.com
+203.0.113.10         exact IPv4 address
+198.51.100.0/28      IPv4 CIDR
+```
+
+Blank lines and `#` comments are ignored. Exclusions always override allowed scope.
 
 ## Default behavior
 
-Without a scope file, ApolloRE allows the supplied root domain and all of its subdomains:
+Without `--scope-file`, the supplied root domain and its subdomains are allowed:
+
+```text
+example.com
+*.example.com
+```
 
 ```bash
 ./apolloRE.sh -d example.com --mode full
 ```
 
-Resolved scope:
+## Mixed scope example
 
 ```text
-example.com
-*.example.com
-```
-
-## Allow-list
-
-Create a file such as `scope.txt`:
-
-```text
+# scope.txt
 example.com
 *.example.com
 api.partner.example
 *.partner.example
+203.0.113.10
+198.51.100.0/28
 ```
-
-Run:
 
 ```bash
 ./apolloRE.sh -d example.com --scope-file scope.txt --mode full
 ```
 
-Exact hosts are added directly to the discovery set. Wildcard entries such as `*.partner.example` are also treated as enumeration roots for Subfinder, historical URL sources, and Shodan enrichment.
+Exact DNS hosts are direct targets. Wildcard DNS entries provide additional discovery roots. Exact IPv4 addresses can participate in direct HTTP and port probing. IPv4 CIDRs are passed to the network/port stage rather than being expanded by ApolloRE into a large local list.
 
 ## Exclusions
 
-Create an optional deny-list:
-
 ```text
+# exclude.txt
 dev.example.com
 *.internal.example.com
+203.0.113.12
+198.51.100.8/30
 ```
-
-Run:
 
 ```bash
 ./apolloRE.sh -d example.com \
@@ -54,23 +61,23 @@ Run:
   --mode full
 ```
 
-Exclusions always win over the allow-list.
+A target must match the allow-list and must not match an exclusion. For IPs, exact-IP and CIDR membership are evaluated numerically.
 
 ## Matching rules
 
-- `example.com` matches only that exact hostname.
-- `*.example.com` matches subdomains such as `api.example.com`, but not the apex `example.com`.
-- Blank lines and comments beginning with `#` are ignored.
-- `http://`, `https://`, paths, ports, and a trailing dot are normalized away when reading scope files.
-- Scope files currently accept DNS names and wildcard DNS names, not IP/CIDR ranges.
+- `example.com` matches only the exact host.
+- `*.example.com` matches `api.example.com`, not the apex.
+- `203.0.113.10` matches only that IPv4 address.
+- `198.51.100.0/28` matches IPv4 addresses inside that network.
+- An exact IP exclusion removes that address even when an allowed CIDR contains it.
+- An excluded CIDR removes every address inside that range.
+- IPv6/CIDR6 is not currently implemented.
 
-Every run writes the resolved policy into:
+Every run writes its resolved policy to:
 
 ```text
 results/<root>/scope.txt
 results/<root>/scope.exclude.txt
 ```
 
-Core host and URL-producing modules filter their output through this resolved policy before later scanning, enrichment, CVE checking, screenshots, normalization, or reporting.
-
-Only include assets you own or are explicitly authorized to assess.
+Use scope files that mirror the program's authorization. A technically valid CIDR is not authorization to test it.
