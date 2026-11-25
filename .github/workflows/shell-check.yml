@@ -1,0 +1,21 @@
+name: Shell syntax
+on:
+  pull_request:
+  push:
+permissions:
+  contents: read
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse shell scripts
+        run: |
+          find . -name '*.sh' -print0 | xargs -0 -n 1 bash -n
+      - name: Verify local assessment usage
+        run: |
+          if bash security-local.sh; then
+            exit 1
+          else
+            test "$?" -eq 2
+          fi

@@ -12,3 +12,9 @@ recon.log
 .DS_Store
 .vscode/
 .idea/
+
+# Private assessment output
+security-results/
+*.auth.yaml
+*.auth.json
+playwright/.auth/

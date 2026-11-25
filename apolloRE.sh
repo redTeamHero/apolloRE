@@ -10,7 +10,7 @@ source "$APOLLO_DIR/lib/common.sh"
 
 ORIGINAL_ARGS=("$@")
 ROOT_DOMAIN=""
-MODE="full"
+MODE="passive"
 MODULES=""
 RESUME=false
 VERBOSE=false
@@ -26,23 +26,23 @@ done
 
 load_config "$CONFIG_FILE"
 
-RATE_LIMIT="${APOLLO_RATE_LIMIT:-50}"
+RATE_LIMIT="${APOLLO_RATE_LIMIT:-5}"
 OUTPUT_BASE="${APOLLO_OUTPUT_BASE:-$PWD/results}"
 NUCLEI_SEVERITIES="${NUCLEI_SEVERITIES:-low,medium,high,critical}"
-APOLLO_USER_AGENT="${APOLLO_USER_AGENT:-ApolloRE/2.0}"
+APOLLO_USER_AGENT="${APOLLO_USER_AGENT:-ApolloRE/3.0}"
 CVE_MAX_TECH_QUERIES="${CVE_MAX_TECH_QUERIES:-8}"
 export NUCLEI_SEVERITIES APOLLO_USER_AGENT CVE_MAX_TECH_QUERIES
 
 usage() {
   cat <<'EOF'
-ApolloRE v2 - authorized reconnaissance orchestrator
+ApolloRE v3 - authorized reconnaissance orchestrator
 
 Usage:
   ./apolloRE.sh -d example.com [options]
 
 Options:
   -d, --domain DOMAIN       Root domain in authorized scope (required)
-  -m, --mode MODE           passive | web | full (default: full)
+  -m, --mode MODE           passive | web | full (default: passive; includes HTTP probing)
       --modules LIST        Comma-separated modules
       --cve CVE-ID          Correlate/check one CVE (example: CVE-2024-12345)
       --cve-profile PROFILE safe | expanded (default: safe)
@@ -96,11 +96,12 @@ export NETWORK_DIR="$RUN_DIR/network"
 export FINDINGS_DIR="$RUN_DIR/findings"
 export SCREENSHOTS_DIR="$RUN_DIR/screenshots"
 export LOG_DIR="$RUN_DIR/logs"
+umask 077
 mkdir -p "$ASSETS_DIR" "$WEB_DIR" "$NETWORK_DIR" "$FINDINGS_DIR" "$SCREENSHOTS_DIR" "$LOG_DIR"
 exec > >(tee -a "$LOG_DIR/apollore.log") 2>&1
 
 write_scope_file
-log_info "ApolloRE v2 starting for $ROOT_DOMAIN"
+log_info "ApolloRE v3 starting for $ROOT_DOMAIN"
 log_info "Mode=$MODE rate_limit=$RATE_LIMIT resume=$RESUME output=$RUN_DIR"
 log_info "CVE profile=$CVE_PROFILE"
 [[ -n "$CVE_ID" ]] && log_info "Targeted CVE mode: $CVE_ID"

@@ -1,4 +1,4 @@
-# ApolloRE v2
+# ApolloRE v3 (defensive foundation)
 
 ApolloRE is a modular Bash orchestrator for **authorized** domain reconnaissance, attack-surface mapping, vulnerability triage, and continuous asset monitoring.
 
@@ -264,3 +264,7 @@ jq -r 'select(.type=="cve_detection") | [.template,.value,.severity] | @tsv' \
 ## Design
 
 `apolloRE.sh` is the orchestrator. Shared functions live in `lib/`; each stage implements a `run_<module>` function under `modules/`. The `cve` module keeps correlation, restricted automated detection, and later human validation conceptually separate instead of silently turning a full recon run into an exploitation pipeline.
+
+## Defensive source assessment
+
+Run `bash security-local.sh /path/to/owned/source /path/to/private/output` for local Semgrep, Gitleaks, Trivy and Checkov checks. See [the security roadmap](docs/security-roadmap.md) for setup, limitations, and application regression guidance. The default recon mode is now `passive` (includes HTTP probing); the default rate hint is 5.
