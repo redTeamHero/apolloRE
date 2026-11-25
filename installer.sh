@@ -12,7 +12,7 @@ err()  { printf "%b[-]%b %s\n" "$RED" "$RESET" "$*" >&2; }
 
 usage() {
   cat <<'EOF'
-ApolloRE v2 installer (Debian/Kali/Ubuntu)
+ApolloRE v3 installer (Debian/Kali/Ubuntu)
 
 Usage:
   ./installer.sh [--core|--all] [--no-apt] [--check]
@@ -121,7 +121,11 @@ fi
 
 if have nuclei; then
   info "Updating Nuclei templates"
-  nuclei -ut >/dev/null 2>&1 || warn "Could not update Nuclei templates"
+  nuclei -ut || warn "Could not update Nuclei templates"
+  nuclei -tv -duc || warn "Template version unavailable"
+  if ! nuclei -tl -duc -silent | awk 'NF { found=1 } END { exit !found }'; then
+    warn "No usable Nuclei templates found; resolve before scanning."
+  fi
 fi
 
 printf '\n'
